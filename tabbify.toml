@@ -1,0 +1,16 @@
+[app]
+name = "tabbify-workspace-image"
+
+[build]
+kind = "docker"          # build the Dockerfile (Ubuntu + LSP/IDE + codeservice + broker)
+
+[runtime]
+type      = "firecracker"
+lifecycle = "always_on"
+# LSP + IDE are memory-hungry; well above the devbox 512MB. Affects cold-pull
+# (#57) + snapshot size — kept modest for the MVP dogfood repo.
+memory_mb = 4096
+vcpus     = 2
+
+[routes]
+dynamic_prefixes = ["/"]
