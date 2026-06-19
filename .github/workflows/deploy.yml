@@ -1,0 +1,48 @@
+name: Deploy Workspace Image to Tabbify
+on:
+  push:
+    branches: [main]
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      # The in-FC crates are SIBLING repos; check them out next to this one so
+      # scripts/build-binaries.sh can `cd ../tabbify-codeservice` etc. The
+      # contract is a path-dep of both, so it must be present too.
+      - name: Check out tabbify-codeservice
+        uses: actions/checkout@v4
+        with:
+          repository: tabbify-io/tabbify-codeservice
+          path: ../tabbify-codeservice
+      - name: Check out tabbify-broker
+        uses: actions/checkout@v4
+        with:
+          repository: tabbify-io/tabbify-broker
+          path: ../tabbify-broker
+      - name: Check out tabbify-workspace-contract
+        uses: actions/checkout@v4
+        with:
+          repository: tabbify-io/tabbify-workspace-contract
+          path: ../tabbify-workspace-contract
+
+      - name: Install Rust + musl target
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustup target add x86_64-unknown-linux-musl
+
+      - name: Build in-FC binaries (musl)
+        run: ARCH=x86_64 scripts/build-binaries.sh
+
+      # The platform builds the Dockerfile (which COPYs ./bin/*) and publishes
+      # the rootfs under the workspace image ref the supervisor pins
+      # (WORKSPACE_IMAGE_REF). The join token below mirrors the devbox
+      # deploy.yml convention (baked inline; replace with this repo's token).
+      - name: Deploy (build + publish under WORKSPACE_IMAGE_REF)
+        uses: tabbify-io/deploy@v1
+        with:
+          token: ${{ secrets.TABBIFY_DEPLOY_TOKEN }}
