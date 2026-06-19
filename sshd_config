@@ -1,0 +1,17 @@
+# Tabbify Workspace sshd drop-in. exec / IDE-remote land as the UNPRIVILEGED
+# `agent` uid — NEVER root (spec §4: the agent must not read the GitHub token,
+# the broker socket, or any cap-URL). The node's exec proxy + the laptop user's
+# pubkey (appended by the broker, §12 S6) connect on the mesh ULA; the ULA + the
+# injected key ARE the trust boundary.
+#
+# Installed as /etc/ssh/sshd_config.d/tabbify-workspace.conf (overrides the base).
+Port 2222
+ListenAddress ::
+ListenAddress 0.0.0.0
+AllowUsers agent
+PermitRootLogin no
+PasswordAuthentication no
+PubkeyAuthentication yes
+AuthorizedKeysFile /home/agent/.ssh/authorized_keys
+# No DNS in the microVM; skip reverse-DNS auth checks.
+UseDNS no
