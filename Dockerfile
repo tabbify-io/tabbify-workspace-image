@@ -10,52 +10,24 @@
 # the §12-S1 cap dir (/run/tabbify/caps) is 0700 broker-uid; the cap-URL NEVER
 # transits env. The OS-confinement acceptance test proves the invariant.
 #
-# ─── BUILDER STAGE ──────────────────────────────────────────────────────────
-# Build the in-FC binaries (tabbify-codeservice + tabbify-broker) FROM SOURCE at
-# docker-build time. This makes the Dockerfile SELF-CONTAINED: `tcli deploy
-# --remote` is git-aware (the supervisor clones THIS repo and runs `docker build`
-# itself), and ./bin/ is gitignored + CI-only → a pre-built `COPY bin/...` can
-# never see those binaries in the supervisor's clone. Mirroring the devbox image,
-# we build them here instead. The crates git-depend on tabbify-workspace-contract
-# (and codeservice on the broker), so cargo resolves those from GitHub keylessly
-# (all repos public) — no sibling checkouts, no tokens.
+# ─── IN-FC BINARIES: DOWNLOADED, NOT COMPILED ───────────────────────────────
+# The in-FC binaries (tabbify-codeservice + tabbify-broker) are PRE-BUILT ONCE
+# (fast, locally / on a GitHub runner via scripts/build-binaries.sh) and uploaded
+# to PUBLIC GitHub releases on THIS repo, content-addressed by source rev. The
+# Dockerfile just `curl`s them in the final stage (no Rust compile at docker-build
+# time). This is what makes `tcli deploy --remote` viable: the SUPERVISOR clones
+# THIS repo + runs `docker build` itself on the prod serving box; compiling the
+# two crates from source there (the old multi-stage `binbuilder` approach) blew
+# the deploy control-socket timeout → app 502. A `curl` of two ~5MB release assets
+# is fast and keeps the supervisor build well under the deploy window. Mirrors how
+# tabbify-devbox-image curls its tcli binary from a public release.
 #
-# musl-tools provides the `x86_64-linux-musl-gcc` that ring's C build needs, so
-# the plain `cargo build --target *-musl` path works WITHOUT cargo-zigbuild.
+# The release tags are rev-pinned + immutable (bin-codeservice-<short> /
+# bin-broker-<short>); re-pin together when the in-FC crates move (rebuild via
+# scripts/build-binaries.sh, upload a new rev-tagged release, bump the ARGs below).
+# All repos are public, so the curl needs NO token and 404s loudly if a tag is
+# missing — the supervisor build fails fast rather than shipping a stale binary.
 #
-# IMPORTANT — toolchain pin: both crates ship a `rust-toolchain.toml` pinning
-# `channel = "stable"`, but the `rust:1-bookworm` image's DEFAULT toolchain is a
-# concrete VERSION (e.g. 1.96.0), NOT the `stable` channel alias. cargo run in
-# the cloned repo honors `rust-toolchain.toml` → rustup auto-switches to (and
-# auto-installs) `stable`. So the musl target MUST be added to the `stable`
-# toolchain; adding it to the default version-toolchain leaves `stable` without
-# musl std and the build dies with a misleading E0463 ("can't find crate for
-# `core`/`std`, the *-musl target may not be installed"). We pre-install `stable`
-# + its musl std here and gate on the rustlib actually landing.
-FROM --platform=linux/amd64 rust:1-bookworm AS binbuilder
-RUN apt-get update \
- && apt-get install -y --no-install-recommends musl-tools git \
- && rm -rf /var/lib/apt/lists/*
-RUN rustup toolchain install stable --profile minimal \
- && rustup target add --toolchain stable x86_64-unknown-linux-musl \
- && test -d "$(rustc +stable --print sysroot)/lib/rustlib/x86_64-unknown-linux-musl/lib" \
- && rustup +stable target list --installed | grep -qx x86_64-unknown-linux-musl
-
-# Pinned PUSHED revs (must match the current tabbify-codeservice / tabbify-broker
-# HEADs; re-pin together when the in-FC crates move). Override via --build-arg.
-ARG CODESERVICE_REV=fa8f389eabc0e597f5d2d13f1253ce1fb2d1b278
-ARG BROKER_REV=a637582b1a65ddbcf9362ab57e5d2acc0e19b252
-
-RUN git clone https://github.com/tabbify-io/tabbify-codeservice.git /src/codeservice \
- && cd /src/codeservice \
- && git checkout "$CODESERVICE_REV" \
- && cargo build --release --target x86_64-unknown-linux-musl --bin tabbify-codeservice
-
-RUN git clone https://github.com/tabbify-io/tabbify-broker.git /src/broker \
- && cd /src/broker \
- && git checkout "$BROKER_REV" \
- && cargo build --release --target x86_64-unknown-linux-musl --bin tabbify-broker
-
 # ─── FINAL STAGE ────────────────────────────────────────────────────────────
 # Pin the platform: the generic-FC conversion rejects a non-host-arch rootfs.
 FROM --platform=linux/amd64 ubuntu:24.04
@@ -135,12 +107,16 @@ RUN useradd --create-home --shell /bin/bash agent \
  && chmod 0750 /home/agent \
  && chmod 0770 /home/agent/.ssh
 
-# The in-FC binaries, copied from the binbuilder stage (built from source above,
-# static-ish musl ELF). Self-contained: no pre-built ./bin COPY → the supervisor's
-# git clone (which has NO ./bin) can build this image for `tcli deploy --remote`.
-COPY --from=binbuilder /src/codeservice/target/x86_64-unknown-linux-musl/release/tabbify-codeservice /usr/local/bin/tabbify-codeservice
-COPY --from=binbuilder /src/broker/target/x86_64-unknown-linux-musl/release/tabbify-broker /usr/local/bin/tabbify-broker
-RUN chmod 0755 /usr/local/bin/tabbify-codeservice /usr/local/bin/tabbify-broker
+# The in-FC binaries, DOWNLOADED from this repo's PUBLIC rev-pinned releases (no
+# Rust compile at docker-build time → the supervisor's `docker build` for
+# `tcli deploy --remote` stays under the deploy timeout). The asset filenames are
+# the bare binary names; the rev lives in the release TAG. Re-pin: rebuild via
+# scripts/build-binaries.sh, `gh release create bin-<crate>-<short> ...`, bump.
+ARG CODESERVICE_REV=fa8f389
+ARG BROKER_REV=a637582
+RUN curl -fsSL "https://github.com/tabbify-io/tabbify-workspace-image/releases/download/bin-codeservice-${CODESERVICE_REV}/tabbify-codeservice" -o /usr/local/bin/tabbify-codeservice \
+ && curl -fsSL "https://github.com/tabbify-io/tabbify-workspace-image/releases/download/bin-broker-${BROKER_REV}/tabbify-broker" -o /usr/local/bin/tabbify-broker \
+ && chmod 0755 /usr/local/bin/tabbify-codeservice /usr/local/bin/tabbify-broker
 
 # Pre-snapshot scrub (spec §4): drops the broker's in-RAM creds + tmpfs cred
 # files BEFORE a Full snapshot freezes them. Invoked by the supervisor (Track 3)

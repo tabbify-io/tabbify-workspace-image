@@ -11,11 +11,14 @@ jobs:
       - uses: actions/checkout@v4
 
       # `tcli deploy --remote` is git-aware: it sends this repo's git_ref and the
-      # SUPERVISOR clones the repo + runs `docker build` itself. The Dockerfile is
-      # now SELF-CONTAINED (a multi-stage `binbuilder` stage builds
-      # tabbify-codeservice + tabbify-broker from source at docker-build time), so
-      # the CI builds NOTHING here — no rust/zig/cargo-zigbuild/build-binaries.
-      # Just checkout → deploy. (deploy@v1 defaults remote: true.)
+      # SUPERVISOR clones the repo + runs `docker build` itself on the prod box.
+      # The Dockerfile no longer COMPILES the in-FC binaries (the old multi-stage
+      # `binbuilder` Rust build blew the deploy timeout) — it `curl`s pre-built
+      # tabbify-codeservice + tabbify-broker from this repo's PUBLIC rev-pinned
+      # GitHub releases (built once via scripts/build-binaries.sh + uploaded with
+      # `gh release create bin-<crate>-<short>`). So the CI builds NOTHING here —
+      # the releases are the source of truth. Just checkout → deploy.
+      # (deploy@v1 defaults remote: true.)
       - name: Deploy (remote build on Tabbify infra)
         uses: tabbify-io/deploy@v1
         with:
