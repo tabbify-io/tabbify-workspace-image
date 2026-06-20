@@ -1,6 +1,14 @@
 #!/usr/bin/env bash
-# Cross-build the in-FC binaries (tabbify-codeservice + tabbify-broker) as static
-# musl executables for the target arch, into ./bin/ for the Docker build to COPY.
+# LOCAL-DEV ONLY. Cross-build the in-FC binaries (tabbify-codeservice +
+# tabbify-broker) as static musl executables for the target arch, into ./bin/.
+#
+# NOTE: the Dockerfile is now SELF-CONTAINED — its multi-stage `binbuilder`
+# stage builds these binaries from source at docker-build time, so neither
+# `tcli deploy --remote` (supervisor-side `docker build`) NOR a plain local
+# `docker build .` needs this script. It survives only as a fast LOCAL inner
+# loop: with sibling checkouts (../tabbify-codeservice, ../tabbify-broker) it
+# rebuilds just the changed crate into ./bin/, which you can then wire into an
+# ad-hoc image if you want to skip the in-docker rebuild. It is NOT used by CI.
 #
 # Usage: ARCH=x86_64|aarch64 scripts/build-binaries.sh
 #
