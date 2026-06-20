@@ -16,13 +16,26 @@ jobs:
           rustup default stable
           rustup target add x86_64-unknown-linux-musl
 
+      # zig is the cross-linker cargo-zigbuild uses to produce static-musl
+      # binaries without an `x86_64-linux-musl-gcc` on the runner (the plain
+      # `cargo build --target *-musl` path needs that gcc and the stock
+      # ubuntu-latest runner does not ship it). Mirrors tabbify-forge's release CI.
+      - name: Install zig (cross-linker for cargo-zigbuild)
+        uses: mlugg/setup-zig@v2
+        with:
+          version: 0.16.0
+
+      - name: Install cargo-zigbuild
+        run: cargo install cargo-zigbuild --locked
+
       # scripts/build-binaries.sh clones the in-FC crates (tabbify-codeservice +
-      # tabbify-broker) at their PINNED revs and builds the musl binaries. The
-      # crates git-depend on tabbify-workspace-contract (and codeservice on the
-      # broker), so cargo resolves those from GitHub keylessly (repos public) —
-      # no sibling checkouts. The pins live in the script (single source of truth)
-      # and can be overridden here via CODESERVICE_REV / BROKER_REV.
-      - name: Build in-FC binaries (musl, from pinned pushed repos)
+      # tabbify-broker) at their PINNED revs and builds the musl binaries (via
+      # cargo-zigbuild — auto-detected on PATH). The crates git-depend on
+      # tabbify-workspace-contract (and codeservice on the broker), so cargo
+      # resolves those from GitHub keylessly (repos public) — no sibling
+      # checkouts. The pins live in the script (single source of truth) and can
+      # be overridden here via CODESERVICE_REV / BROKER_REV.
+      - name: Build in-FC binaries (musl via cargo-zigbuild, from pinned pushed repos)
         run: ARCH=x86_64 scripts/build-binaries.sh
 
       # The platform builds the Dockerfile (which COPYs ./bin/*) and publishes

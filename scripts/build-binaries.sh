@@ -15,11 +15,14 @@
 # The pinned revs below are the single source of truth for the CI build. Override
 # per crate via env (CODESERVICE_REV / BROKER_REV) for a coordinated re-pin.
 #
-# On a native Linux runner (CI) `cargo build --target *-linux-musl` links with
-# the toolchain's own musl support and needs no extra flags. On a cross host
-# (e.g. macOS dev box) a `<arch>-linux-musl-gcc` cross-linker must be on PATH
-# (brew install FiloSottile/musl-cross/musl-cross); when present we auto-wire it
-# (see scripts/lib-cross.sh) so the SAME script builds on both.
+# Cross-linking the musl target needs a linker that targets musl. We prefer
+# cargo-zigbuild (zig ships its own musl libc + cross-linker, so NO
+# `<arch>-linux-musl-gcc` is needed) — the same path tabbify-forge's release CI
+# uses. When `cargo-zigbuild` is on PATH we run `cargo zigbuild`; otherwise we
+# fall back to plain `cargo build` and auto-wire a brew `<arch>-linux-musl-gcc`
+# cross-linker if one is present (see scripts/lib-cross.sh) for a local dev box
+# that has musl-cross but not zig. CI installs zig + cargo-zigbuild (deploy.yml),
+# so it always takes the zigbuild path and never needs musl-gcc.
 set -euo pipefail
 
 ARCH="${ARCH:-x86_64}"
@@ -38,8 +41,18 @@ WORKDIR="${WORKDIR:-$HERE/.build-src}"
 . "$HERE/scripts/lib-cross.sh"
 
 rustup target add "$TARGET" >/dev/null 2>&1 || true
-wire_cross_linker "$ARCH"
 mkdir -p "$HERE/bin"
+
+# Pick the build driver once. cargo-zigbuild needs no musl-gcc; only wire the
+# brew cross-linker for the plain-`cargo build` fallback.
+if command -v cargo-zigbuild >/dev/null 2>&1; then
+  CARGO_BUILD_CMD="zigbuild"
+  echo "build-binaries: using cargo-zigbuild (zig cross-linker, no musl-gcc needed)"
+else
+  CARGO_BUILD_CMD="build"
+  echo "build-binaries: cargo-zigbuild not found — falling back to 'cargo build' + musl-gcc"
+  wire_cross_linker "$ARCH"
+fi
 
 # resolve_src CRATE REV -> echo the dir to build in.
 # Prefers a sibling checkout (local dev); else clones the pinned rev into WORKDIR.
@@ -64,8 +77,8 @@ resolve_src() {
 build() {
   local crate="$1" binname="$2" rev="$3" src
   src="$(resolve_src "$crate" "$rev")"
-  echo "build-binaries: building $crate ($TARGET) from $src"
-  ( cd "$src" && cargo build --release --target "$TARGET" --bin "$binname" )
+  echo "build-binaries: building $crate ($TARGET, cargo $CARGO_BUILD_CMD) from $src"
+  ( cd "$src" && cargo "$CARGO_BUILD_CMD" --release --target "$TARGET" --bin "$binname" )
   cp "$src/target/$TARGET/release/$binname" "$HERE/bin/$binname"
   chmod 0755 "$HERE/bin/$binname"
 }
