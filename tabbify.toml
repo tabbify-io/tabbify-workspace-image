@@ -4,9 +4,14 @@ name = "tabbify-workspace-image"
 [build]
 kind = "docker"          # build the Dockerfile (Ubuntu + LSP/IDE + codeservice + broker)
 
+# This is a BASE IMAGE (the supervisor pulls it per-USER on workspace_ensure),
+# NOT a standalone always-on app. on_request → the deploy pipeline PUBLISHES the
+# image to the registry without spawning a standalone 4GB FC on the serving box
+# (which has neither the RAM nor a reason to run a bare, cap-file-less instance).
+# Real workspaces spawn it via /v1/workspaces.
 [runtime]
 type      = "firecracker"
-lifecycle = "always_on"
+lifecycle = "on_request"
 # LSP + IDE are memory-hungry; well above the devbox 512MB. Affects cold-pull
 # (#57) + snapshot size — kept modest for the MVP dogfood repo.
 memory_mb = 4096
