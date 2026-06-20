@@ -59,14 +59,28 @@ chmod 0700 "$TABBIFY_RUN/caps"
 echo "workspace: created broker-only cred area $TABBIFY_RUN (socket 0600) + cap dir $TABBIFY_RUN/caps 0700"
 
 # 2. Inject the node SSH key into AGENT (exec lands as `agent`, never root).
+#    The §12-S6 add-key is mediated by the BROKER uid (a member of the `agent`
+#    group), so ~agent/.ssh is group-writable (0770 agent:agent) + the file is
+#    group-writable (0660 agent:agent) — the broker appends the laptop key there.
+#    /home/agent stays 0750 agent:agent so the broker (group agent) can traverse
+#    but a NON-agent-group uid cannot. sshd runs StrictModes no (see sshd_config)
+#    so the group-writable ~/.ssh is accepted. This does NOT let the agent read a
+#    broker credential (the broker socket + caps are 0600 broker:broker, and the
+#    agent is NOT in the broker group).
+chown agent:agent "$AGENT_HOME"
+chmod 0750 "$AGENT_HOME"
 if [ -n "${TABBIFY_DEVBOX_AUTHORIZED_KEY:-}" ]; then
     mkdir -p "$AGENT_HOME/.ssh"
     printf '%s\n' "$TABBIFY_DEVBOX_AUTHORIZED_KEY" > "$AUTH_KEYS"
     chown -R agent:agent "$AGENT_HOME/.ssh"
-    chmod 700 "$AGENT_HOME/.ssh"
-    chmod 600 "$AUTH_KEYS"
-    echo "workspace: injected node key into agent authorized_keys"
+    chmod 0770 "$AGENT_HOME/.ssh"
+    chmod 0660 "$AUTH_KEYS"
+    echo "workspace: injected node key into agent authorized_keys (broker-group-writable for §12-S6 add-key)"
 else
+    # Still create a broker-writable ~/.ssh so a post-boot add-key has a target.
+    mkdir -p "$AGENT_HOME/.ssh"
+    chown -R agent:agent "$AGENT_HOME/.ssh"
+    chmod 0770 "$AGENT_HOME/.ssh"
     echo "workspace: WARN TABBIFY_DEVBOX_AUTHORIZED_KEY empty; exec will fail until a key is provisioned" >&2
 fi
 
@@ -82,11 +96,16 @@ fi
 
 # 5. Broker as the privileged `broker` uid (holds creds; agent has no access).
 #    Binds the 0600 socket /run/tabbify/broker.sock; reads cap-URLs from the
-#    0700 broker-uid cap dir only.
-echo "workspace: starting tabbify-broker as broker uid"
+#    0700 broker-uid cap dir only. The SAME process ALSO serves the token-gated
+#    :8732 add-key control endpoint (§12 S6, T4 IDE-remote): it reads the
+#    authkeys cap from /run/tabbify/caps/authkeys.cap (0600, broker-uid — the
+#    agent uid cannot read it) and 401s any unauthenticated :8732 POST. The
+#    runner forwards [app_ula]:8732 → here so node can add a laptop key.
+echo "workspace: starting tabbify-broker as broker uid (broker.sock + :8732 add-key)"
 setpriv --reuid broker --regid broker --init-groups \
     /usr/local/bin/tabbify-broker &
-# Give the broker a moment to bind the 0600 socket before the agent service.
+# Give the broker a moment to bind the 0600 socket + the :8732 listener before
+# the agent service.
 sleep 1
 
 # 6. Code-service as the UNPRIVILEGED agent uid (confined to ~/projects+~/knowledge).

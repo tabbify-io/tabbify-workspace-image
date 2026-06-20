@@ -13,5 +13,13 @@ PermitRootLogin no
 PasswordAuthentication no
 PubkeyAuthentication yes
 AuthorizedKeysFile /home/agent/.ssh/authorized_keys
+# StrictModes off: the §12-S6 add-key is mediated by the privileged `broker` uid,
+# so ~agent/.ssh is group-writable (group `agent`, which `broker` is a member of)
+# — the broker appends the laptop key there. Default StrictModes would reject a
+# group-writable ~/.ssh. This does NOT weaken the trust boundary: the mesh ULA +
+# the keys in authorized_keys ARE the boundary, and the key is appended ONLY via
+# the token-gated :8732 broker endpoint (the agent has no token; it cannot add a
+# key that lets anyone NEW in — only the node, holding the authkeys cap, can).
+StrictModes no
 # No DNS in the microVM; skip reverse-DNS auth checks.
 UseDNS no

@@ -28,9 +28,25 @@ docker exec -u root "$cid" sh -c '
   chmod 0600 /run/tabbify/caps/demo.url
 '
 
+echo "== supervisor writes the §12-S6 authkeys cap (broker-uid, 0600) =="
+docker exec -u root "$cid" sh -c '
+  printf "SUPERSECRETAUTHKEYSCAP\n" > /run/tabbify/caps/authkeys.cap
+  chown broker:broker /run/tabbify/caps/authkeys.cap
+  chmod 0600 /run/tabbify/caps/authkeys.cap
+'
+
 echo "== agent CANNOT read the per-repo cap file =="
 if docker exec -u agent "$cid" cat /run/tabbify/caps/demo.url 2>/dev/null; then
   echo "FAIL: agent read the cap-URL file"; exit 1
+fi
+
+echo "== agent CANNOT read the §12-S6 authkeys cap (so it cannot self-add keys) =="
+if docker exec -u agent "$cid" cat /run/tabbify/caps/authkeys.cap 2>/dev/null; then
+  echo "FAIL: agent read the authkeys cap file"; exit 1
+fi
+echo "== the authkeys cap is NOT in agent's environment =="
+if docker exec -u agent "$cid" sh -c 'env | grep -q SUPERSECRETAUTHKEYSCAP'; then
+  echo "FAIL: authkeys cap leaked into agent env"; exit 1
 fi
 
 echo "== agent CANNOT even list the cap dir (0700 broker-uid) =="

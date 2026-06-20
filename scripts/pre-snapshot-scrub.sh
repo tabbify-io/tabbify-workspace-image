@@ -22,6 +22,10 @@ else
 fi
 
 # 2. Remove the tmpfs cred files (defence in depth; tmpfs is excluded from the
-#    persisted rootfs, but a restart must not re-load a stale secret).
-rm -f /run/tabbify/caps/*.url /run/tabbify/forge-admin 2>/dev/null || true
+#    persisted rootfs, but a restart must not re-load a stale secret). Covers the
+#    per-repo cap-URLs, the §12-S6 authkeys cap (the :8732 bearer token), and the
+#    forge-admin token (both the in-caps path the supervisor writes and the
+#    legacy bare path).
+rm -f /run/tabbify/caps/*.url /run/tabbify/caps/authkeys.cap \
+      /run/tabbify/caps/forge-admin.token /run/tabbify/forge-admin 2>/dev/null || true
 echo "pre-snapshot: cred files removed; scrub complete"

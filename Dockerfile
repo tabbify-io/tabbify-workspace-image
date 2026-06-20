@@ -71,12 +71,22 @@ RUN set -e; \
 # Unprivileged `agent` uid owning ~/projects + ~/knowledge, and a SEPARATE
 # `broker` uid (no shell, no home, no agent-readable creds). The agent CANNOT
 # read broker paths (enforced at runtime by /init + the 0600 socket / 0700 dir).
+#
+# The broker is added to the `agent` GROUP so the privileged broker can mediate
+# the §12-S6 add-key (write agent's ~/.ssh/authorized_keys) WITHOUT the agent
+# ever reading a broker credential. This is one-directional: broker∈agent-group
+# lets broker traverse /home/agent (0750) + write ~/.ssh (0770, group-writable);
+# the agent is NOT in the broker group, so it still cannot read the broker socket
+# (0600 broker:broker) nor any cap-file (0600 broker:broker). init.sh re-asserts
+# these perms at boot (the rootfs perms can be reset by the generic-FC convert).
 RUN useradd --create-home --shell /bin/bash agent \
  && useradd --system --no-create-home --shell /usr/sbin/nologin broker \
+ && usermod -aG agent broker \
  && mkdir -p /home/agent/projects /home/agent/knowledge \
              /home/agent/.ssh /home/agent/.config \
  && chown -R agent:agent /home/agent \
- && chmod 700 /home/agent/.ssh
+ && chmod 0750 /home/agent \
+ && chmod 0770 /home/agent/.ssh
 
 # The in-FC binaries (built by scripts/build-binaries.sh into ./bin).
 COPY bin/tabbify-codeservice /usr/local/bin/tabbify-codeservice
@@ -101,5 +111,8 @@ COPY sshd_config /etc/ssh/sshd_config.d/tabbify-workspace.conf
 COPY init.sh /init
 RUN chmod 0755 /init
 
-EXPOSE 2222 8080 8731
+# Ports: 2222 sshd, 8080 readiness, 8731 code-service, 8732 broker token-gated
+# add-key control (§12 S6, T4 IDE-remote dynamic add-key — the broker serves it
+# behind the authkeys-cap bearer gate; the runner forwards [app_ula]:8732 here).
+EXPOSE 2222 8080 8731 8732
 ENTRYPOINT ["/init"]
