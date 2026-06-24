@@ -3,6 +3,7 @@ name = "tabbify-workspace-image"
 
 [build]
 kind = "docker"          # build the Dockerfile (Ubuntu + LSP/IDE + codeservice + broker)
+builder = "ec2-serving"  # build on serving (t3.medium, co-located w/ registry) — MSI unreachable over mesh (:8730 502)
 
 # This is a BASE IMAGE (the supervisor pulls it per-USER on workspace_ensure),
 # NOT a standalone always-on app. on_request → the deploy pipeline PUBLISHES the
