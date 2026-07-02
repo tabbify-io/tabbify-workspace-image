@@ -132,12 +132,16 @@ RUN chown -R agent:agent /home/agent/.config/nvim
 RUN mkdir -p /run/sshd
 COPY sshd_config /etc/ssh/sshd_config.d/tabbify-workspace.conf
 
-# PID-1 init (exec-form so the generic-FC path boots it as the microVM's init).
-COPY init.sh /init
-RUN chmod 0755 /init
+# Workspace init. MUST NOT be named /init: the generic-FC conversion injects its
+# OWN PID-1 wrapper at /init and `exec`s our ENTRYPOINT. Naming our script /init
+# makes that wrapper `exec /init` itself forever — a silent boot recursion that
+# never starts the :8080 shim (readiness times out at 30s → respawn loop). Use a
+# distinct path (mirrors the devbox image) so the wrapper execs THIS script.
+COPY init.sh /usr/local/bin/tabbify-workspace-init
+RUN chmod 0755 /usr/local/bin/tabbify-workspace-init
 
 # Ports: 2222 sshd, 8080 readiness, 8731 code-service, 8732 broker token-gated
 # add-key control (§12 S6, T4 IDE-remote dynamic add-key — the broker serves it
 # behind the authkeys-cap bearer gate; the runner forwards [app_ula]:8732 here).
 EXPOSE 2222 8080 8731 8732
-ENTRYPOINT ["/init"]
+ENTRYPOINT ["/usr/local/bin/tabbify-workspace-init"]
