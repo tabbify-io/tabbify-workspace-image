@@ -22,5 +22,9 @@ jobs:
       - name: Deploy (remote build on Tabbify infra)
         uses: tabbify-io/deploy@v1
         with:
-          token: ${{ secrets.TABBIFY_DEPLOY_TOKEN }}
+          token: ${{ secrets.TABBIFY_PLATFORM_TOKEN }}
           remote: true
+          # Publish the workspace base image into the reserved platform/ namespace
+          # (#72). The platform-network token's claim forces the registry tenant to
+          # "platform"; any-token READ of platform/* is served, WRITE only by this token.
+          tenant: platform
